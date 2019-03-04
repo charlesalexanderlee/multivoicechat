@@ -2,6 +2,12 @@ import socket
 import pyaudio
 import threading
 
+# To do:
+# [done] Handle client disconnect
+# - Implement specific client voice communication
+# - Identify clients by room number
+# - Record microphone input only if broadcasting voice
+
 # Socket
 HOST = socket.gethostbyname(socket.gethostname())
 PORT = 5000
@@ -21,10 +27,10 @@ stream = p.open(format=FORMAT,
                 frames_per_buffer=CHUNK)
 
 
-def client_listener(host_socket):
+def client_listener():
     while True:
         try:
-            connection, address = host_socket.accept()
+            connection, address = server_socket.accept()
             handle_client_thread = threading.Thread(target=handle_client, args=(connection, address))
             handle_client_thread.start()
             CONNECTED_CLIENTS.append(connection)
@@ -36,7 +42,6 @@ def client_listener(host_socket):
 
 def handle_client(client, client_address):
     client.send(f'Connected to {SERVER_ADDRESS}'.encode('utf-8'))
-    pass
 
 
 with socket.socket() as server_socket:
@@ -46,15 +51,27 @@ with socket.socket() as server_socket:
         print('[Server hosted at ' + SERVER_ADDRESS + ']')
 
         # Creates a separate thread for listening for clients
-        client_listener_thread = threading.Thread(target=client_listener, args=(server_socket,))
+        client_listener_thread = threading.Thread(target=client_listener)
         client_listener_thread.start()
         print('Listening for clients...')
 
         # Records and sends microphone input to connected clients (the main thread)
         while True:
-            microphone_input = stream.read(CHUNK)
+            try:
+                microphone_input = stream.read(CHUNK)
+                for client in CONNECTED_CLIENTS:
+                        client.send(microphone_input)
 
-            for client in CONNECTED_CLIENTS:
-                client.send(microphone_input)
+            # Handles client disconnect
+            except ConnectionResetError:
+                    print(client.getpeername()[0] + ' Disconnected')
+                    CONNECTED_CLIENTS.remove(client)
+                    print(CONNECTED_CLIENTS)
+
+            except KeyboardInterrupt:
+                for client in CONNECTED_CLIENTS:
+                    client.close()
+                    break
+
     except socket.error as error:
         print(str(error))
